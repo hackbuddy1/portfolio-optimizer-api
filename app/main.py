@@ -33,7 +33,8 @@ def health(md: MarketData = Depends(get_market_data)):
     """Cheap liveness check that also proves the workbook loaded."""
     return {"status": "ok", "tickers": md.available_tickers}
 
-def run_strategy(strategy, returns, constraints, yields, factor_objective=None, beta_matrix=None):
+def run_strategy(strategy, returns, constraints, yields,
+                 factor_objective=None, beta_matrix=None, risk_free_rate=0.0):
     """Dispatch to the right optimiser and return weights as fractions.
 
     Covariance and mean returns are annualised once here, so every
@@ -54,7 +55,9 @@ def run_strategy(strategy, returns, constraints, yields, factor_objective=None, 
     if strategy is Strategy.MINIMIZE_VOLATILITY:
         return strategies.minimize_volatility(cov, bounds, extra)
     if strategy is Strategy.MAXIMIZE_SHARPE:
-        return strategies.maximize_sharpe(mean_returns, cov, 0.0, bounds, extra)
+        return strategies.maximize_sharpe(
+            mean_returns, cov, risk_free_rate / 100.0, bounds, extra
+        )
     if strategy is Strategy.RISK_PARITY:
         return strategies.risk_parity(cov, bounds, extra)
     if strategy is Strategy.MINIMIZE_DRAWDOWN:
@@ -98,6 +101,7 @@ def optimize(
             yields,
             request.factor_objective,
             beta_matrix,
+            request.risk_free_rate,
         )
     except UnknownTickerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

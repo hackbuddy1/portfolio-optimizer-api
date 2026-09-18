@@ -63,6 +63,10 @@ class OptimizationRequest(BaseModel):
     strategy: Strategy
     constraints: Constraints | None = None
     factor_objective: FactorObjective | None = None
+    risk_free_rate: float = Field(
+        default=0.0, ge=0, le=20,
+        description="Annual risk-free rate in percent. The brief permits 0%.",
+    )
 
     @model_validator(mode="after")
     def weights_must_sum_to_100(self):
