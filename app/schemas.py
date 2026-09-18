@@ -32,11 +32,37 @@ class Constraints(BaseModel):
     max_volatility: float | None = Field(default=None, ge=0)
     max_drawdown: float | None = Field(default=None, ge=0)
 
+class FactorName(str, Enum):
+    MOMENTUM = "momentum"
+    VALUE = "value"
+    SIZE = "size"
+
+
+class Direction(str, Enum):
+    MAXIMIZE = "maximize"
+    MINIMIZE = "minimize"
+
+
+class FactorObjective(BaseModel):
+    factor: FactorName
+    direction: Direction = Direction.MAXIMIZE
+
+
+class FactorBetas(BaseModel):
+    momentum: float
+    value: float
+    size: float
+
+
+class FactorBetaComparison(BaseModel):
+    current_portfolio: FactorBetas
+    optimized_portfolio: FactorBetas
 
 class OptimizationRequest(BaseModel):
     securities: list[SecurityInput] = Field(min_length=1)
     strategy: Strategy
     constraints: Constraints | None = None
+    factor_objective: FactorObjective | None = None
 
     @model_validator(mode="after")
     def weights_must_sum_to_100(self):
@@ -51,6 +77,15 @@ class OptimizationRequest(BaseModel):
         if len(tickers) != len(set(tickers)):
             raise ValueError("Duplicate tickers in request")
         return self
+    @model_validator(mode="after")
+    def factor_strategy_needs_an_objective(self):
+        if (self.strategy is Strategy.OPTIMIZE_FACTOR_EXPOSURE
+                and self.factor_objective is None):
+            raise ValueError(
+                "optimize_factor_exposure requires 'factor_objective', "
+                "e.g. {\"factor\": \"momentum\", \"direction\": \"maximize\"}"
+            )
+        return self
 
 
 class AllocationChange(BaseModel):
@@ -64,3 +99,4 @@ class AllocationChange(BaseModel):
 class OptimizationResponse(BaseModel):
     optimization_strategy: str
     allocation_changes: list[AllocationChange]
+    factor_betas: FactorBetaComparison | None = None
