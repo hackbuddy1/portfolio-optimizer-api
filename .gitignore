@@ -1,0 +1,6 @@
+__pycache__/
+venv/
+.pytest_cache/
+check.py
+check_metrics.py
+check_strategies.py
