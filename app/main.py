@@ -1,3 +1,9 @@
+import numpy as np
+
+from app.loader import TRADING_DAYS_PER_YEAR
+from app.optimizer import OptimizationError
+from app import strategies
+
 from fastapi import Depends, FastAPI, HTTPException
 
 from app.loader import MarketData, UnknownTickerError, get_market_data
@@ -20,6 +26,31 @@ def health(md: MarketData = Depends(get_market_data)):
     """Cheap liveness check that also proves the workbook loaded."""
     return {"status": "ok", "tickers": md.available_tickers}
 
+def run_strategy(strategy, returns):
+    """Dispatch to the right optimiser and return weights as fractions.
+
+    Covariance and mean returns are annualised once here rather than
+    inside each strategy, so every strategy works in the same units.
+    """
+    cov = returns.cov().values * TRADING_DAYS_PER_YEAR
+    mean_returns = returns.mean().values * TRADING_DAYS_PER_YEAR
+    n_assets = returns.shape[1]
+
+    if strategy is Strategy.EQUAL_WEIGHTS:
+        return strategies.equal_weights(n_assets)
+    if strategy is Strategy.MINIMIZE_VOLATILITY:
+        return strategies.minimize_volatility(cov)
+    if strategy is Strategy.MAXIMIZE_SHARPE:
+        return strategies.maximize_sharpe(mean_returns, cov)
+    if strategy is Strategy.RISK_PARITY:
+        return strategies.risk_parity(cov)
+    if strategy is Strategy.MINIMIZE_DRAWDOWN:
+        return strategies.minimize_drawdown(returns)
+
+    raise HTTPException(
+        status_code=501,
+        detail=f"Strategy '{strategy.value}' not implemented yet.",
+    )
 
 @app.post("/optimize", response_model=OptimizationResponse)
 def optimize(
@@ -29,19 +60,14 @@ def optimize(
     tickers = [s.ticker for s in request.securities]
 
     try:
-        md.validate_tickers(tickers)
+        returns = md.returns_for(tickers)
+        weights = run_strategy(request.strategy, returns)
     except UnknownTickerError as exc:
-        # 400, not 500: the caller sent a bad ticker, the server is fine.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OptimizationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    if request.strategy is Strategy.EQUAL_WEIGHTS:
-        n = len(tickers)
-        optimized = [100.0 / n] * n
-    else:
-        raise HTTPException(
-            status_code=501,
-            detail=f"Strategy '{request.strategy.value}' not implemented yet.",
-        )
+    optimized = weights * 100.0
 
     changes = [
         AllocationChange(
